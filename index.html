@@ -1,0 +1,426 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ping Pong Rankings</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 10px;
+            background: #f0f2f5;
+            font-size: 16px;
+        }
+        .container {
+            background: white;
+            padding: 15px;
+            border-radius: 10px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            max-width: 100%;
+            overflow-x: auto; /* Ensures content doesn't overflow */
+        }
+        h1 {
+            color: #1a73e8;
+            text-align: center;
+            margin: 0 0 15px;
+            font-size: 24px;
+        }
+        h2 {
+            color: #333;
+            font-size: 18px;
+            margin: 15px 0 10px;
+        }
+        .section {
+            margin-bottom: 20px;
+        }
+        input, select, button {
+            padding: 8px;
+            border-radius: 6px;
+            border: 1px solid #ddd;
+            font-size: 14px;
+            width: 100%;
+            box-sizing: border-box;
+            margin: 5px 0;
+        }
+        button {
+            background: #1a73e8;
+            color: white;
+            border: none;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        button:hover {
+            background: #1557b0;
+        }
+        .game-input {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+        .player-selects {
+            display: flex;
+            gap: 5px;
+        }
+        .player-selects select {
+            width: 50%;
+        }
+        .table-container {
+            width: 100%;
+            overflow-x: auto; /* Enables horizontal scrolling */
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 20px;
+        }
+        th, td {
+            padding: 10px;
+            text-align: left;
+            border-bottom: 1px solid #eee;
+            font-size: 12px; /* Reduced font size for mobile */
+        }
+        th {
+            background: #f8f9fa;
+        }
+        .stats-button {
+            padding: 5px 10px;
+            font-size: 12px;
+        }
+        .stats {
+            display: none;
+            margin-top: 10px;
+            padding: 10px;
+            background: #f8f9fa;
+            border-radius: 6px;
+            font-size: 14px;
+        }
+        @media (min-width: 600px) {
+            .container {
+                max-width: 600px;
+                margin: 0 auto;
+            }
+            input, select, button {
+                padding: 10px;
+                font-size: 16px;
+            }
+            th, td {
+                padding: 12px 6px 12px 6px;
+                font-size: 16px;
+            }
+            .stats-button {
+                font-size: 14px;
+            }
+        }
+    </style>    
+</head>
+<body>
+    <div class="container">
+        <h1>Ping Pong Rankings</h1>
+
+        <div class="table-container">
+            <table id="rankings">
+                <thead>
+                    <tr>
+                        <th>#</th>
+                        <th>Name</th>
+                        <th>Points</th>
+                        <th>Games</th>
+                        <th>Win%</th>
+                        <th>Stats</th>
+                    </tr>
+                </thead>
+                <tbody></tbody>
+            </table>
+        </div>
+
+        <div class="section">
+            <h2>New Game Result</h2>
+            <div class="game-input">
+                <div class="player-selects">
+                    <select id="winner">
+                        <option value="">Select Winner</option>
+                    </select>
+                    <select id="loser">
+                        <option value="">Select Loser</option>
+                    </select>
+                </div>
+                <button onclick="addGame()">Add Game</button>
+                <button onclick="undoLast()">Undo Last</button>
+            </div>
+        </div>
+
+        <div class="section">
+            <h2>Add New Player</h2>
+            <input id="newPlayer" placeholder="Enter nickname" />
+            <button onclick="addPlayer()">Add Player</button>
+        </div>
+    </div>
+
+    <script type="module">
+        import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js';
+        import { getDatabase, ref, onValue, set, update, push, remove } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js';
+
+        const firebaseConfig = {
+            apiKey: "AIzaSyAot6pNRCx405znA5RxQTOu0byABBnIF-8",
+            authDomain: "ping-n-pong.firebaseapp.com",
+            databaseURL: "https://ping-n-pong-default-rtdb.asia-southeast1.firebasedatabase.app",
+            projectId: "ping-n-pong",
+            storageBucket: "ping-n-pong.firebasestorage.app",
+            messagingSenderId: "544576809753",
+            appId: "1:544576809753:web:265b9b8ffe0116c588b388"
+        };
+
+        try {
+            const app = initializeApp(firebaseConfig);
+            const db = getDatabase(app);
+            const playersRef = ref(db, 'players');
+            const historyRef = ref(db, 'history');
+
+            console.log("Firebase initialized:", app.name);
+
+            let data = { players: {}, history: [] };
+
+            onValue(playersRef, (snapshot) => {
+                data.players = snapshot.val() || {};
+                console.log("Players updated:", data.players);
+                updateUI();
+            }, (error) => {
+                console.error("Error fetching players:", error);
+            });
+
+            onValue(historyRef, (snapshot) => {
+                data.history = snapshot.val() || [];
+                console.log("History updated:", data.history);
+                updateUI();
+            }, (error) => {
+                console.error("Error fetching history:", error);
+            });
+
+            window.addPlayer = function() {
+                const nickname = document.getElementById('newPlayer').value.trim();
+                if (nickname && !data.players[nickname]) {
+                    set(ref(db, 'players/' + nickname), {
+                        points: 50,
+                        games: 0,
+                        won: 0,
+                        lost: 0,
+                        vs: {}
+                    }).then(() => {
+                        console.log("Player added:", nickname);
+                        document.getElementById('newPlayer').value = '';
+                    }).catch((error) => {
+                        console.error("Error adding player:", error);
+                    });
+                }
+            };
+
+            function calculatePointChange(winner, loser) {
+                console.log("Calculating points for:", winner, "vs", loser);
+                
+                const winnerPoints = data.players[winner].points;
+                const loserPoints = data.players[loser].points;
+                const pointDiff = loserPoints - winnerPoints; // Note: not using Math.abs anymore
+                
+                // Exponential equation
+                const baseChange = Math.max(1, Math.min(20, Math.round(1 + 2 * Math.pow(1.1, (pointDiff + 10) / 5))));
+                console.log("Base change from point diff:", baseChange);
+
+                // Rank constraints
+                const rankedPlayers = Object.keys(data.players).sort((a, b) => {
+                    return data.players[b].points - data.players[a].points;
+                });
+                
+                let change = baseChange;
+                
+                // Final constraints applicable to all scenarios
+                change = Math.max(0, Math.min(change, loserPoints)); // Min 0, max loser's points
+
+                console.log("Final point change:", change);
+                return change;
+            }
+
+            window.addGame = function() {
+                console.log("addGame called");
+                const winner = document.getElementById('winner').value;
+                const loser = document.getElementById('loser').value;
+                
+                // Fixed scores for single game
+                const winnerScore = 1;
+                const loserScore = 0;
+
+                console.log("Inputs:", { winner, loser });
+
+                if (!winner || !loser || winner === loser) {
+                    console.log("Invalid input: missing players or same player selected");
+                    return;
+                }
+
+                if (!data.players[winner] || !data.players[loser]) {
+                    console.log("Player data not found:", { winner: !!data.players[winner], loser: !!data.players[loser] });
+                    return;
+                }
+
+                const pointChange = calculatePointChange(winner, loser);
+                const winnerData = data.players[winner];
+                const loserData = data.players[loser];
+                const winnerVs = winnerData.vs || {};
+                const loserVs = loserData.vs || {};
+
+                console.log("Updating database with:", { pointChange, winnerData, loserData });
+
+                Promise.all([
+                    update(ref(db, 'players/' + winner), {
+                        points: winnerData.points + pointChange,
+                        games: winnerData.games + 1,
+                        won: winnerData.won + 1,
+                        lost: winnerData.lost + 0,
+                        vs: {
+                            ...winnerVs,
+                            [loser]: {
+                                won: (winnerVs[loser]?.won || 0) + 1,
+                                lost: (winnerVs[loser]?.lost || 0) + 0
+                            }
+                        }
+                    }),
+                    update(ref(db, 'players/' + loser), {
+                        points: loserData.points - pointChange,
+                        games: loserData.games + 1,
+                        won: loserData.won + 0,
+                        lost: loserData.lost + 1,
+                        vs: {
+                            ...loserVs,
+                            [winner]: {
+                                won: (loserVs[winner]?.won || 0) + 0,
+                                lost: (loserVs[winner]?.lost || 0) + 1
+                            }
+                        }
+                    }),
+                    push(historyRef, { winner, loser, winnerScore, loserScore, pointChange })
+                ]).then(() => {
+                    console.log("Game added successfully:", winner, "vs", loser);
+                }).catch((error) => {
+                    console.error("Error adding game:", error);
+                });
+            };
+
+            window.undoLast = function() {
+                console.log("undoLast called");
+                if (!data.history || Object.keys(data.history).length === 0) {
+                    console.log("No history to undo");
+                    return;
+                }
+
+                const lastGameKey = Object.keys(data.history)[Object.keys(data.history).length - 1];
+                const last = data.history[lastGameKey];
+                if (!last) {
+                    console.log("Last game not found");
+                    return;
+                }
+
+                const pointChange = last.pointChange;
+                const winner = last.winner;
+                const loser = last.loser;
+                const winnerData = data.players[winner];
+                const loserData = data.players[loser];
+                const winnerVs = winnerData.vs || {};
+                const loserVs = loserData.vs || {};
+
+                console.log("Undoing game:", { winner, loser, pointChange });
+
+                Promise.all([
+                    update(ref(db, 'players/' + winner), {
+                        points: winnerData.points - pointChange,
+                        games: winnerData.games - 1,
+                        won: winnerData.won - 1,
+                        lost: winnerData.lost - 0,
+                        vs: {
+                            ...winnerVs,
+                            [loser]: {
+                                won: (winnerVs[loser]?.won || 0) - 1,
+                                lost: (winnerVs[loser]?.lost || 0) - 0
+                            }
+                        }
+                    }),
+                    update(ref(db, 'players/' + loser), {
+                        points: loserData.points + pointChange,
+                        games: loserData.games - 1,
+                        won: loserData.won - 0,
+                        lost: loserData.lost - 1,
+                        vs: {
+                            ...loserVs,
+                            [winner]: {
+                                won: (loserVs[winner]?.won || 0) - 0,
+                                lost: (loserVs[winner]?.lost || 0) - 1
+                            }
+                        }
+                    }),
+                    remove(ref(db, 'history/' + lastGameKey))
+                ]).then(() => {
+                    console.log("Last game undone successfully");
+                }).catch((error) => {
+                    console.error("Error undoing game:", error);
+                });
+            };
+
+            window.toggleStats = function(player) {
+                const statsDiv = document.getElementById(`stats-${player}`);
+                statsDiv.style.display = statsDiv.style.display === 'block' ? 'none' : 'block';
+            };
+
+            function updateUI() {
+                const players = Object.keys(data.players)
+                .sort((a, b) => {
+                    // First compare by points
+                    const pointsDiff = data.players[b].points - data.players[a].points;
+                    if (pointsDiff !== 0) return pointsDiff;
+                    
+                    // If points are equal, compare by win rate
+                    const aWinRate = data.players[a].games > 0 ? 
+                        (data.players[a].won / data.players[a].games) : 0;
+                    const bWinRate = data.players[b].games > 0 ? 
+                        (data.players[b].won / data.players[b].games) : 0;
+                    
+                    const winRateDiff = bWinRate - aWinRate;
+                    if (winRateDiff !== 0) return winRateDiff;
+                    
+                    // If win rates are also equal, sort alphabetically
+                    return a.localeCompare(b);
+                });
+                
+                const winnerSelect = document.getElementById('winner');
+                const loserSelect = document.getElementById('loser');
+                winnerSelect.innerHTML = '<option value="">Select Winner</option>' + 
+                    players.map(p => `<option value="${p}">${p}</option>`).join('');
+                loserSelect.innerHTML = '<option value="">Select Loser</option>' + 
+                    players.map(p => `<option value="${p}">${p}</option>`).join('');
+
+                const tbody = document.querySelector('#rankings tbody');
+                tbody.innerHTML = players.map((player, index) => {
+                    const p = data.players[player];
+                    const winP = p.games ? Math.round((p.won / p.games) * 100) : 0;
+                    const vsStats = Object.entries(p.vs || {}).map(([opponent, stats]) => {
+                        const total = stats.won + stats.lost;
+                        const winP = total ? Math.round((stats.won / total) * 100) : 0;
+                        return `${opponent}: ${stats.won}-${stats.lost} (${winP}%)`;
+                    }).join(', ');
+                    return `<tr>
+                        <td>${index + 1}</td>
+                        <td>${player}</td>
+                        <td>${p.points}</td>
+                        <td>${p.games}</td>
+                        <td>${winP}%</td>
+                        <td><button class="stats-button" onclick="toggleStats('${player}')">Stats</button></td>
+                    </tr>
+                    <tr><td colspan="6"><div id="stats-${player}" class="stats">${vsStats || 'No matches yet'}</div></td></tr>`;
+                }).join('');
+            }
+
+            updateUI();
+
+        } catch (error) {
+            console.error("Firebase initialization failed:", error);
+        }
+    </script>
+</body>
+</html>
